@@ -1,0 +1,40 @@
+joy_node:
+  ros__parameters:
+    deadzone: 0.1
+    autorepeat_rate: 20.0
+
+rover_control_node:
+  ros__parameters:
+    enable_button: 9        # L1, deadman
+    turbo_button: 10        # R1
+    tank_toggle_button: 0   # A, hold 3s to toggle tank mode
+    strafe_button: 2        # X, hold + D-pad left/right to strafe
+    tank_hold_seconds: 3.0
+
+    axis_forward: 1         # left stick Y (arcade forward/back)
+    axis_steer: 0           # left stick X (arcade steering)
+    axis_left_wheel: 1      # left stick Y (tank mode, left wheels)
+    axis_right_wheel: 3     # right stick Y (tank mode, right wheels)
+    axis_dpad_x: 6          # D-pad X (strafe left/right)
+
+    scale_linear: 0.7
+    scale_linear_turbo: 1.5
+    scale_angular: 4.0
+    scale_angular_turbo: 4.0
+    scale_strafe: 0.7
+    scale_strafe_turbo: 1.5
+    wheel_separation: 0.30  # must match rover_motor_bridge's wheel_separation
+
+    # ---- Head swivel and buzzer (never affect driving) ----
+    buzzer_button: 1            # B, one beep per press (L1 must be held)
+    axis_head: 2                # right stick X (verified)
+    head_in_tank_mode: false    # tank mode uses the right stick for the wheels
+    head_direction: 1.0         # set -1.0 if the head turns the wrong way
+    head_max_rate_dps: 120.0    # head speed at full stick, degrees/second
+    head_curve_exponent: 2.0    # 1.0 = linear, 2.0 = gentle start, 3.0 = gentler
+    head_accel_dps2: 600.0      # how fast head speed ramps up and down
+    head_min_deg: 0.0
+    head_max_deg: 180.0
+    head_center_deg: 90.0
+    head_update_hz: 50.0
+    joy_timeout: 0.5            # head stops moving if /joy goes quiet this long

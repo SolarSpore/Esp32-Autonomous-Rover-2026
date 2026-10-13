@@ -1,0 +1,457 @@
+/**********************************************************************
+  ESP32 4-Motor UDP Rover Controller + OTA
+
+  Hardware:
+    - ESP32
+    - 2x L298N
+    - 4x DC gear motors
+    - Motors: FL, FR, RL, RR
+
+  UDP command format:
+    "FL,FR,RL,RR"
+
+  Motor range:
+    -255 .. 255
+
+  Failsafe:
+    Stops all motors if no valid packet is received for FAILSAFE_MS.
+
+  Network:
+    1. Try configured Wi-Fi network.
+    2. If unavailable, start fallback access point.
+    3. mDNS hostname: esp32rover.local
+
+  OTA:
+    - ArduinoOTA
+    - OTA hostname: esp32rover
+    - OTA password configured in config.h
+    - Motors are stopped when an OTA update starts
+    - USB remains the recovery method
+**********************************************************************/
+
+#include "config.h"
+
+#include <Arduino.h>
+#include <WiFi.h>
+#include <WiFiUdp.h>
+#include <ESPmDNS.h>
+#include <ArduinoOTA.h>
+
+// ============================================================
+// Network
+// ============================================================
+
+const unsigned long STA_TIMEOUT_MS = 8000;
+
+const unsigned int UDP_PORT = 4210;
+
+WiFiUDP udp;
+
+char packetBuffer[128];
+
+// ============================================================
+// Motor configuration
+// ============================================================
+
+struct MotorPins {
+  int pinA;
+  int pinB;
+};
+
+// FL, FR, RL, RR
+MotorPins motors[4] = {
+  {26, 27},  // FL
+  {18, 19},  // FR
+  {21, 22},  // RL
+  {23, 25}   // RR
+};
+
+// Each motor gets two PWM channels.
+//
+// Motor 0: channels 0, 1
+// Motor 1: channels 2, 3
+// Motor 2: channels 4, 5
+// Motor 3: channels 6, 7
+
+const int PWM_FREQ = 5000;
+const int PWM_RES  = 8;
+
+// ============================================================
+// Failsafe
+// ============================================================
+
+unsigned long lastPacketMs = 0;
+
+const unsigned long FAILSAFE_MS = 500;
+
+// ============================================================
+// Motor control
+// ============================================================
+
+void setMotor(int index, int speed) {
+  if (index < 0 || index >= 4) {
+    return;
+  }
+
+  speed = constrain(speed, -255, 255);
+
+  int channelA = index * 2;
+  int channelB = index * 2 + 1;
+
+  if (speed > 0) {
+    // Forward
+    ledcWrite(channelA, speed);
+    ledcWrite(channelB, 0);
+  }
+  else if (speed < 0) {
+    // Reverse
+    ledcWrite(channelA, 0);
+    ledcWrite(channelB, -speed);
+  }
+  else {
+    // Stop
+    ledcWrite(channelA, 0);
+    ledcWrite(channelB, 0);
+  }
+}
+
+void stopAll() {
+  for (int i = 0; i < 4; i++) {
+    setMotor(i, 0);
+  }
+}
+
+void setupMotors() {
+  for (int i = 0; i < 4; i++) {
+    int channelA = i * 2;
+    int channelB = i * 2 + 1;
+
+    ledcSetup(channelA, PWM_FREQ, PWM_RES);
+    ledcSetup(channelB, PWM_FREQ, PWM_RES);
+
+    ledcAttachPin(motors[i].pinA, channelA);
+    ledcAttachPin(motors[i].pinB, channelB);
+  }
+
+  stopAll();
+}
+
+// ============================================================
+// UDP command parser
+// ============================================================
+
+bool parseCommand(char* command) {
+  int values[4] = {0, 0, 0, 0};
+
+  int index = 0;
+
+  char* token = strtok(command, ",");
+
+  while (token != nullptr && index < 4) {
+    values[index] = atoi(token);
+    index++;
+
+    token = strtok(nullptr, ",");
+  }
+
+  // We require exactly four motor values.
+  if (index != 4) {
+    return false;
+  }
+
+  for (int i = 0; i < 4; i++) {
+    values[i] = constrain(values[i], -255, 255);
+  }
+
+  for (int i = 0; i < 4; i++) {
+    setMotor(i, values[i]);
+  }
+
+  return true;
+}
+
+// ============================================================
+// Network setup
+// ============================================================
+
+bool setupNetwork() {
+
+  WiFi.mode(WIFI_STA);
+
+  Serial.print("Trying to join Wi-Fi network: ");
+  Serial.println(sta_ssid);
+
+  WiFi.begin(sta_ssid, sta_password);
+
+  unsigned long startAttempt = millis();
+
+  while (
+    WiFi.status() != WL_CONNECTED &&
+    millis() - startAttempt < STA_TIMEOUT_MS
+  ) {
+    delay(300);
+    Serial.print(".");
+  }
+
+  Serial.println();
+
+  // ----------------------------------------------------------
+  // Normal Wi-Fi mode
+  // ----------------------------------------------------------
+
+  if (WiFi.status() == WL_CONNECTED) {
+
+    Serial.println("Wi-Fi connected.");
+
+    Serial.print("IP address: ");
+    Serial.println(WiFi.localIP());
+
+  }
+
+  // ----------------------------------------------------------
+  // Fallback AP mode
+  // ----------------------------------------------------------
+
+  else {
+
+    Serial.println(
+      "Home network unavailable."
+    );
+
+    Serial.println(
+      "Starting fallback access point."
+    );
+
+    WiFi.disconnect(true);
+
+    delay(100);
+
+    WiFi.mode(WIFI_AP);
+
+    bool apStarted = WiFi.softAP(
+      ap_ssid,
+      ap_password
+    );
+
+    if (apStarted) {
+
+      Serial.print("Access point started: ");
+      Serial.println(ap_ssid);
+
+      Serial.print("Robot IP address: ");
+      Serial.println(WiFi.softAPIP());
+
+    }
+    else {
+
+      Serial.println(
+        "ERROR: Failed to start fallback access point."
+      );
+
+      return false;
+    }
+  }
+
+  // ----------------------------------------------------------
+  // mDNS
+  // ----------------------------------------------------------
+
+  if (MDNS.begin(mdnsHostname)) {
+
+    Serial.print("mDNS responder started: ");
+    Serial.print(mdnsHostname);
+    Serial.println(".local");
+
+  }
+  else {
+
+    Serial.println(
+      "WARNING: mDNS startup failed."
+    );
+
+  }
+
+  return true;
+}
+
+// ============================================================
+// OTA setup
+// ============================================================
+
+void setupOTA() {
+
+  // Name shown to OTA tools.
+  ArduinoOTA.setHostname(mdnsHostname);
+
+  // Require authentication for OTA updates.
+  ArduinoOTA.setPassword(ota_password);
+
+  ArduinoOTA.onStart([]() {
+
+    Serial.println();
+    Serial.println("OTA update starting...");
+
+    // Never leave the robot driving during a firmware update.
+    stopAll();
+
+  });
+
+  ArduinoOTA.onEnd([]() {
+
+    Serial.println();
+    Serial.println("OTA update complete.");
+
+  });
+
+  ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) {
+
+    unsigned int percent =
+      (progress * 100U) / total;
+
+    Serial.printf(
+      "OTA progress: %u%%\r",
+      percent
+    );
+
+  });
+
+  ArduinoOTA.onError([](ota_error_t error) {
+
+    Serial.println();
+    Serial.print("OTA error: ");
+
+    switch (error) {
+
+      case OTA_AUTH_ERROR:
+        Serial.println("Authentication failed");
+        break;
+
+      case OTA_BEGIN_ERROR:
+        Serial.println("Begin failed");
+        break;
+
+      case OTA_CONNECT_ERROR:
+        Serial.println("Connection failed");
+        break;
+
+      case OTA_RECEIVE_ERROR:
+        Serial.println("Receive failed");
+        break;
+
+      case OTA_END_ERROR:
+        Serial.println("End failed");
+        break;
+
+      default:
+        Serial.println("Unknown error");
+        break;
+    }
+
+    // Make absolutely sure the robot is stopped.
+    stopAll();
+
+  });
+
+  ArduinoOTA.begin();
+
+  Serial.println("OTA ready.");
+  Serial.print("OTA hostname: ");
+  Serial.println(mdnsHostname);
+  Serial.println("OTA port: 3232");
+}
+
+// ============================================================
+// Setup
+// ============================================================
+
+void setup() {
+
+  Serial.begin(115200);
+
+  delay(500);
+
+  Serial.println();
+  Serial.println("==============================");
+  Serial.println("ESP32 Rover Booting");
+  Serial.println("==============================");
+
+  setupMotors();
+
+  if (!setupNetwork()) {
+
+    Serial.println(
+      "Network setup failed."
+    );
+
+    stopAll();
+
+    return;
+  }
+
+  setupOTA();
+
+  udp.begin(UDP_PORT);
+
+  Serial.print("Listening for UDP commands on port ");
+  Serial.println(UDP_PORT);
+
+  stopAll();
+
+  Serial.println("Rover ready.");
+}
+
+// ============================================================
+// Main loop
+// ============================================================
+
+void loop() {
+
+  // OTA must be serviced continuously.
+  ArduinoOTA.handle();
+
+  // ----------------------------------------------------------
+  // UDP command handling
+  // ----------------------------------------------------------
+
+  int packetSize = udp.parsePacket();
+
+  if (packetSize > 0) {
+
+    int length = udp.read(
+      packetBuffer,
+      sizeof(packetBuffer) - 1
+    );
+
+    if (length > 0) {
+
+      packetBuffer[length] = '\0';
+
+      bool validCommand =
+        parseCommand(packetBuffer);
+
+      if (validCommand) {
+
+        lastPacketMs = millis();
+
+      }
+      else {
+
+        Serial.println(
+          "Invalid UDP command received."
+        );
+
+        stopAll();
+      }
+    }
+  }
+
+  // ----------------------------------------------------------
+  // Motor failsafe
+  // ----------------------------------------------------------
+
+  if (millis() - lastPacketMs > FAILSAFE_MS) {
+
+    stopAll();
+
+  }
+}
