@@ -3,6 +3,15 @@
 Changes to the ESP32 mecanum rover: firmware, ROS 2 packages, launch scripts and tools.
 Platform-level changes are recorded in the Distributed-Robotics-Platform-2026 repo.
 
+## 2026-10-17
+
+### Repository
+
+- Added `scripts/README.md`, moved here from the platform repository. The platform's older
+  variants of the start/stop scripts stay in that repository's git history.
+- Moved `rover_control/joy_mapper.py` to `scripts/tools/`. It is a helper, not part of the ROS package.
+- Added `docs/` for rover-specific documentation.
+
 ## 2026-10-12
 
 ### Repository
