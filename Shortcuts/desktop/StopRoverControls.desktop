@@ -2,7 +2,7 @@
 Type=Application
 Name=Stop Rover Controls
 Comment=Stop teleop, UDP bridge and foxglove_bridge
-Exec=/home/deck/Robotics/stop_rover_controls.sh
+Exec=/home/deck/Robotics/Shortcuts/stop_rover_controls.sh
 Icon=process-stop
 Terminal=false
 Categories=Utility;

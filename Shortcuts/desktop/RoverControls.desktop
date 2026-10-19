@@ -2,7 +2,7 @@
 Type=Application
 Name=Rover Controls
 Comment=Start teleop, UDP bridge and foxglove_bridge (right-click for Stop)
-Exec=/home/deck/Robotics/start_rover_controls.sh
+Exec=/home/deck/Robotics/Shortcuts/start_rover_controls.sh
 Icon=input-gaming
 Terminal=false
 Categories=Utility;
@@ -10,4 +10,4 @@ Actions=Stop;
 
 [Desktop Action Stop]
 Name=Stop Rover Controls
-Exec=/home/deck/Robotics/stop_rover_controls.sh
+Exec=/home/deck/Robotics/Shortcuts/stop_rover_controls.sh

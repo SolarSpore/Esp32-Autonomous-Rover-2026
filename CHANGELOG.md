@@ -3,6 +3,15 @@
 Changes to the ESP32 mecanum rover: firmware, ROS 2 packages, launch scripts and tools.
 Platform-level changes are recorded in the Distributed-Robotics-Platform-2026 repo.
 
+## 2026-10-18
+
+### Setup and layout
+
+- Added `Setup-Guide.md`, a quick start for the Steam Deck and for flashing the firmware with PlatformIO.
+- Rewrote `README.md`: overview, repository layout, components, and the rover's ROS 2 nodes, hardware and UDP protocol.
+- Added `ros2_ws/` (Pixi workspace files) and `foxglove/` (dashboard layouts, none yet).
+- Renamed `scripts/` to `Shortcuts/` and moved the tools to `tools/`, mirroring the folders on the Deck.
+
 ## 2026-10-17
 
 ### Repository
