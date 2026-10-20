@@ -50,8 +50,21 @@ written for the default `deck` user. A notification appears when the rover contr
 
 ## Adapting them
 
-If your username or folders differ, edit the full paths in both scripts (Pixi, the workspace and the
-logs folder) and the `Exec=` line in each `.desktop` file, then run the `chmod +x` commands again.
+The top of `start_rover_controls.sh` sets three paths:
+
+    PIXI=/home/deck/.pixi/bin/pixi
+    WS=/home/deck/Robotics/ros2_ws
+    LOGDIR=/home/deck/Robotics/logs
+
+Change `PIXI` if Pixi is installed somewhere else, `WS` if your workspace is in a different folder,
+and `LOGDIR` if you want the logs elsewhere. If your username is not `deck`, change all three. Then
+change the `Exec=` line in each `.desktop` file to the new location of the scripts, and run the
+`chmod +x` commands again.
+
+The `start bridge` line passes `max_linear_speed:=1.5` and `min_pwm:=110` to the motor bridge. Edit
+them to change the top speed or the minimum motor power. The rover's IP address is not set in this
+script: both bridges default to `192.168.1.26`, and you can change it by adding `-p robot_ip:=YOUR_IP`
+to the `start bridge` and `start peripherals` lines.
 
 ## Troubleshooting
 
