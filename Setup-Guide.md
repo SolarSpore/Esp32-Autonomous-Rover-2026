@@ -107,6 +107,8 @@ cp -n ../tools/*.py ~/Robotics/tools/
 
 KDE may ask you to right-click a new icon and allow it to run, the first time. `cp -n` never overwrites a file that is already in `~/Robotics/tools`.
 
+The scripts and icons are explained in more detail, including how to adapt them to another setup, in [Shortcuts/README.md](Shortcuts/README.md). The short version follows.
+
 ### How the shortcuts work
 
 - **`RoverControls.desktop`** is the "Rover Controls" icon. Its `Exec=` line is the full path of `start_rover_controls.sh`, and it has a right-click action, "Stop Rover Controls".
@@ -118,7 +120,7 @@ Launchers do not inherit your shell's PATH, so the scripts call Pixi by its full
 
 ### Using the tools
 
-The tools in `~/Robotics/tools` are described in `tools/README.md` in this repository. In short, with the rover on blocks:
+Each tool is documented in [tools/README.md](tools/README.md): what it does, how to run it and what to expect. The short version, with the rover on blocks:
 
 - **Wheel tests** (`test_each_wheel.py`, `hold_all_wheels.py`): standalone UDP scripts for checking wiring and motor behavior. Click Stop Rover Controls first, because two senders to the ESP32 make the motors stutter, then run them with `python3`:
 
