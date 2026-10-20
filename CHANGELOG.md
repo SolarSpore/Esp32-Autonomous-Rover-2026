@@ -3,6 +3,13 @@
 Changes to the ESP32 mecanum rover: firmware, ROS 2 packages, launch scripts and tools.
 Platform-level changes are recorded in the Distributed-Robotics-Platform-2026 repo.
 
+## 2026-10-19
+
+### Documentation
+
+- Added `tools/README.md`: how to run the wheel tests and the controller wizard.
+- Added a "Using the tools" section to `Setup-Guide.md`.
+
 ## 2026-10-18
 
 ### Setup and layout

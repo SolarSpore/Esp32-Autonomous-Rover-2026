@@ -116,7 +116,30 @@ KDE may ask you to right-click a new icon and allow it to run, the first time. `
 
 Launchers do not inherit your shell's PATH, so the scripts call Pixi by its full path (`/home/deck/.pixi/bin/pixi`) and use full paths for the workspace and logs. If you want the scripts elsewhere, change the `Exec=` lines in the two icons to match.
 
-The tools in `~/Robotics/tools` are standalone UDP test scripts for bring-up (`hold_all_wheels.py`, `test_each_wheel.py`) and `joy_mapper.py`, a browser-based controller calibration wizard. Stop the rover controls before running the UDP tests, because two senders to the ESP32 make the motors stutter.
+### Using the tools
+
+The tools in `~/Robotics/tools` are described in `tools/README.md` in this repository. In short, with the rover on blocks:
+
+- **Wheel tests** (`test_each_wheel.py`, `hold_all_wheels.py`): standalone UDP scripts for checking wiring and motor behavior. Click Stop Rover Controls first, because two senders to the ESP32 make the motors stutter, then run them with `python3`:
+
+```bash
+python3 ~/Robotics/tools/test_each_wheel.py
+python3 ~/Robotics/tools/hold_all_wheels.py 120
+```
+
+- **Controller wizard** (`joy_mapper.py`): a browser-based tool that finds which axis or button each control uses. It needs `joy_node` running, but not the rest of the rover stack. Click Stop Rover Controls, then in one Konsole:
+
+```bash
+cd ~/Robotics/ros2_ws && pixi run ros2 run joy joy_node
+```
+
+and in a second Konsole:
+
+```bash
+cd ~/Robotics/ros2_ws && pixi run python3 ~/Robotics/tools/joy_mapper.py
+```
+
+Open `http://localhost:8899` in a browser on the Deck and follow the prompts. The result is written to `~/Robotics/Rover/rover_control/config/joy_mapping.yaml`. The rover's teleop does not read that file automatically.
 
 ## 6. Foxglove
 
