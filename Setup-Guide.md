@@ -153,11 +153,11 @@ Create the container and install Studio. Download the Linux amd64 `.deb` package
 distrobox create --name foxglove --image ubuntu:24.04
 ls ~/Downloads/*.deb
 distrobox enter foxglove -- sudo apt update
-distrobox enter foxglove -- sudo apt install -y ~/Downloads/foxglove-studio-*.deb
+distrobox enter foxglove -- sudo apt install -y libasound2t64 ~/Downloads/foxglove-studio*.deb
 distrobox enter foxglove -- bash -c 'dpkg -l | grep -i foxglove; ls /opt/Foxglove | head'
 ```
 
-Expected: a line for `foxglove-studio` and the application's files. If the file name differs, change `foxglove-studio-*.deb`. These commands rebuild the container the rover was tested with; they have not yet been run from a clean Deck, so report any step that fails.
+Expected: a line for `foxglove-studio` and the application's files. The pattern `foxglove-studio*.deb` matches the downloaded file with or without a version number in its name. These commands match the install records of the container the rover was tested with (Ubuntu 24.04, Foxglove Studio 3.1.1). Report any step that fails on a clean Deck.
 
 Add a launcher script and an icon:
 
@@ -192,7 +192,11 @@ EOF
 chmod +x ~/Desktop/foxglove-steamdeck.desktop
 ```
 
-To connect: start the rover controls, open Foxglove Studio, choose Open connection, pick Foxglove WebSocket, and enter `ws://localhost:8765`. Foxglove layouts (dashboards) can be exported as JSON files and imported again. The `foxglove/` folder of this repository is where the rover's layouts will go.
+To connect: start the rover controls, open Foxglove Studio, choose Open connection, pick Foxglove WebSocket, and enter `ws://localhost:8765`.
+
+### Dashboard layouts
+
+Foxglove layouts (dashboards) can be exported as JSON files and imported again. The rover's layouts go in the `foxglove/` folder of this repository, which is described in [foxglove/README.md](foxglove/README.md).
 
 ## 7. Drive
 
