@@ -3,6 +3,11 @@
 The start and stop scripts and the desktop icons for the rover. They are plain scripts, not a ROS 2
 package, and are meant to live directly on the Deck's filesystem, not inside the ROS workspace.
 
+## Before you use them
+
+The scripts expect Pixi installed and the ROS workspace built at `~/Robotics/ros2_ws`, with this
+repository at `~/Robotics/Rover`. Steps 1 to 4 of `../Setup-Guide.md` set that up.
+
 ## Install on the Deck
 
 Run these from the `Shortcuts/` folder of this repository:
@@ -27,9 +32,29 @@ The test tools in `../tools/` are installed separately: see `../tools/README.md`
   right-click action, "Stop Rover Controls".
 - `desktop/StopRoverControls.desktop`: a separate "Stop Rover Controls" icon.
 
+## Using them
+
+1. Click "Rover Controls" and wait for the notification.
+2. Hold L1 (the deadman) and drive.
+3. Right-click the icon and choose "Stop Rover Controls" when done.
+
+Each part writes its own log in `~/Robotics/logs`: `foxglove.log`, `teleop.log`, `bridge.log` and
+`peripherals.log`. Check them first if something does not start.
+
 ## How the icons work
 
 Each icon's `Exec=` line holds the full path of a script, because launchers do not use your shell
 PATH. The scripts use full paths too: `/home/deck/.pixi/bin/pixi` for Pixi,
 `/home/deck/Robotics/ros2_ws` for the workspace and `/home/deck/Robotics/logs` for the logs. They are
 written for the default `deck` user. A notification appears when the rover controls start or stop.
+
+## Adapting them
+
+If your username or folders differ, edit the full paths in both scripts (Pixi, the workspace and the
+logs folder) and the `Exec=` line in each `.desktop` file, then run the `chmod +x` commands again.
+
+## Troubleshooting
+
+- An icon does nothing: check the `Exec=` path, make sure the script is executable, and read the logs.
+- Controls behave strangely: two `joy_node`s may be running. Run `pkill -f joy_node`, then click
+  Rover Controls again.
