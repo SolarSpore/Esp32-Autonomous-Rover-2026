@@ -107,9 +107,9 @@ cp -n ../tools/*.py ~/Robotics/tools/
 
 KDE may ask you to right-click a new icon and allow it to run, the first time. `cp -n` never overwrites a file that is already in `~/Robotics/tools`.
 
-The scripts and icons are explained in more detail, including how to adapt them to another setup, in [Shortcuts/README.md](Shortcuts/README.md). The short version follows.
-
 ### How the shortcuts work
+
+The shortcuts start and stop everything the rover needs on the Deck: the Foxglove bridge, teleop, `joy_node` and the two bridges to the ESP32. Each script, icon and log file is documented in [Shortcuts/README.md](Shortcuts/README.md), including how to adapt them to another setup. The short version:
 
 - **`RoverControls.desktop`** is the "Rover Controls" icon. Its `Exec=` line is the full path of `start_rover_controls.sh`, and it has a right-click action, "Stop Rover Controls".
 - **`StopRoverControls.desktop`** is a separate "Stop Rover Controls" icon.
