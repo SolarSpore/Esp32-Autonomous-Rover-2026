@@ -1,0 +1,17 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>rover_camera_bridge</name>
+  <version>0.1.0</version>
+  <description>Camera board bridge for the ESP32 rover: MJPEG video, IR sensors and camera on/off for the XIAO ESP32-S3 Sense (HTTP 81 in, UDP 4213 in, UDP 4214 out).</description>
+  <maintainer email="you@example.com">you</maintainer>
+  <license>MIT</license>
+
+  <depend>rclpy</depend>
+  <depend>sensor_msgs</depend>
+  <depend>std_msgs</depend>
+  <depend>std_srvs</depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

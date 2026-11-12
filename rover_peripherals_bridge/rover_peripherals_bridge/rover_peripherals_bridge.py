@@ -20,6 +20,12 @@ Rover telemetry (UDP port 4211, broadcast by the rover, this node listens):
   "Dist:   32.5 cm | Line: 01000 | IR: 00"
   ultrasonic/range     (sensor_msgs/Range, meters; inf = no echo)
   rover/telemetry_raw  (std_msgs/String, the full line: includes line + IR)
+  line_sensor/raw      (std_msgs/UInt8MultiArray, the Line bits as reported: 1 =
+                       the sensor sees a reflective surface, left to right)
+  line_sensor/detected (std_msgs/Bool, true while any sensor sees the line)
+  line_sensor/position (std_msgs/Float32, -1.0 far left to +1.0 far right,
+                       only while the line is detected)
+  ir_sensors/raw       (std_msgs/UInt8MultiArray, the IR bits as reported)
 
   The line is parsed by label ("Name: value" separated by "|"), so a new
   sensor can be added to the rover's line without breaking the others.
@@ -30,7 +36,7 @@ import socket
 import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import Range
-from std_msgs.msg import Empty, Float32, String
+from std_msgs.msg import Bool, Empty, Float32, String, UInt8MultiArray
 
 
 def parse_telemetry(line):
@@ -51,6 +57,30 @@ def parse_distance_cm(text):
         return None
 
 
+def parse_bits(text):
+    """'01000' -> [0, 1, 0, 0, 0]. Returns None if it is not only 0s and 1s."""
+    text = text.strip()
+    if not text or any(c not in '01' for c in text):
+        return None
+    return [int(c) for c in text]
+
+
+def line_position(bits, dark_line, weights):
+    """Where the line is under a row of sensors. The firmware reports 1 for a
+    sensor that sees a reflective surface, so a dark line on a light floor is
+    the sensors that read 0 (dark_line=True). Returns (detected, position):
+    position runs from -1.0 (far left) to +1.0 (far right), the average of the
+    weights of the sensors that see the line, and is 0.0 when none do."""
+    on = [(bit == 0) if dark_line else (bit == 1) for bit in bits]
+    count = sum(1 for seen in on if seen)
+    if count == 0:
+        return False, 0.0
+    usable = weights[:len(bits)]
+    total = sum(w for w, seen in zip(usable, on) if seen)
+    scale = max((abs(w) for w in usable), default=1.0) or 1.0
+    return True, total / count / scale
+
+
 class RoverPeripheralsBridge(Node):
 
     def __init__(self):
@@ -69,6 +99,10 @@ class RoverPeripheralsBridge(Node):
         self.declare_parameter('range_max_m', 2.0)
         self.declare_parameter('range_fov_rad', 0.26)
         self.declare_parameter('range_frame_id', 'ultrasonic_link')
+        # 'dark' = a dark line on a light floor (the sensors that read 0 see
+        # the line); 'light' = a light line on a dark floor.
+        self.declare_parameter('line_color', 'dark')
+        self.declare_parameter('line_weights', [-2.0, -1.0, 0.0, 1.0, 2.0])
 
         g = lambda n: self.get_parameter(n).value
         self.robot_ip = str(g('robot_ip'))
@@ -83,6 +117,8 @@ class RoverPeripheralsBridge(Node):
         self.range_max_m = float(g('range_max_m'))
         self.range_fov_rad = float(g('range_fov_rad'))
         self.range_frame_id = str(g('range_frame_id'))
+        self.line_dark = str(g('line_color')).strip().lower() != 'light'
+        self.line_weights = [float(w) for w in g('line_weights')]
 
         # ---- Sockets ----------------------------------------------------
         self.tx = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -110,6 +146,10 @@ class RoverPeripheralsBridge(Node):
         self.create_subscription(Empty, 'buzzer/beep', self.beep_callback, 10)
         self.range_pub = self.create_publisher(Range, 'ultrasonic/range', 10)
         self.raw_pub = self.create_publisher(String, 'rover/telemetry_raw', 10)
+        self.line_raw_pub = self.create_publisher(UInt8MultiArray, 'line_sensor/raw', 10)
+        self.line_detected_pub = self.create_publisher(Bool, 'line_sensor/detected', 10)
+        self.line_position_pub = self.create_publisher(Float32, 'line_sensor/position', 10)
+        self.ir_raw_pub = self.create_publisher(UInt8MultiArray, 'ir_sensors/raw', 10)
 
         if self.head_send_hz > 0.0:
             self.create_timer(1.0 / self.head_send_hz, self.head_timer)
@@ -176,6 +216,31 @@ class RoverPeripheralsBridge(Node):
                                        throttle_duration_sec=10.0)
             else:
                 self.publish_range(dist_cm)
+
+        if 'Line' in fields:
+            self.publish_line(fields['Line'])
+        if 'IR' in fields:
+            self.publish_ir(fields['IR'])
+
+    def publish_line(self, text: str):
+        bits = parse_bits(text)
+        if bits is None:
+            self.get_logger().warn(f'Bad Line value: {text!r}',
+                                   throttle_duration_sec=10.0)
+            return
+        self.line_raw_pub.publish(UInt8MultiArray(data=bits))
+        detected, position = line_position(bits, self.line_dark, self.line_weights)
+        self.line_detected_pub.publish(Bool(data=detected))
+        if detected:
+            self.line_position_pub.publish(Float32(data=position))
+
+    def publish_ir(self, text: str):
+        bits = parse_bits(text)
+        if bits is None:
+            self.get_logger().warn(f'Bad IR value: {text!r}',
+                                   throttle_duration_sec=10.0)
+            return
+        self.ir_raw_pub.publish(UInt8MultiArray(data=bits))
 
     def publish_range(self, dist_cm: float):
         msg = Range()

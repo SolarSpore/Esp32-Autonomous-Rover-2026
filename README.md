@@ -26,9 +26,13 @@ For a fuller explanation of the Pixi, ROS 2 and Foxglove setup, see the platform
 ├── Setup-Guide.md               quick-start setup guide
 ├── firmware/                    PlatformIO project for the ESP32 (src/main.cpp, platformio.ini,
 │                                include/config.example.h)
+├── firmware-cam/                PlatformIO project for the camera board (src/main.cpp,
+│                                platformio.ini, include/config.example.h)
 ├── rover_control/               teleoperation node, controller configuration, launch file
 ├── rover_motor_bridge/          /cmd_vel to the rover's drive protocol
 ├── rover_peripherals_bridge/    head, buzzer and telemetry
+├── rover_camera_bridge/         camera board: video, microphone and LEDs
+├── rover_odometry/              wheel odometry from the rear encoders (experimental)
 ├── rover_description/           robot description (placeholder, not built)
 ├── ros2_ws/                     Pixi workspace files: pixi.toml and pixi.lock
 ├── Shortcuts/                   start and stop scripts and the desktop icons
@@ -48,9 +52,14 @@ For a fuller explanation of the Pixi, ROS 2 and Foxglove setup, see the platform
 * SG90 servo for the head
 * HC-SR04 ultrasonic distance sensor
 * Buzzer module
-* 5-way TCRT5000L line sensor module and two IR sensors
+* 5-way TCRT5000L line sensor module
+* Seeed XIAO ESP32-S3 Sense camera board (second ESP32) with a PDM microphone and a strip of seven addressable LEDs
+* Two IR sensors, being moved to the camera board
+* Two rear wheel encoders (planned, not fitted)
 
 The pin assignments are constants at the top of `firmware/src/main.cpp`.
+
+The camera board's are at the top of `firmware-cam/src/main.cpp`.
 
 The printable parts are in the `STL/` folder.
 
@@ -67,11 +76,16 @@ flowchart LR
         CONTROL["rover_control_node"]
         MOTOR["rover_motor_bridge"]
         PERIPH["rover_peripherals_bridge"]
+        CAMBR["rover_camera_bridge"]
+        ODOM["rover_odometry (not installed yet)"]
 
         JOY -->|"/joy"| CONTROL
+        JOY -->|"/joy (camera, light and microphone toggles)"| CAMBR
         CONTROL -->|"/cmd_vel"| MOTOR
         CONTROL -->|"/head/angle"| PERIPH
         CONTROL -->|"/buzzer/beep"| PERIPH
+        CONTROL -->|"/cmd_vel"| ODOM
+        PERIPH -->|"rover/telemetry_raw"| ODOM
     end
 
     subgraph ESP["ESP32 ROVER"]
@@ -90,6 +104,20 @@ flowchart LR
     MOTOR -->|"UDP 4210"| MCU
     PERIPH -->|"UDP 4212"| MCU
     MCU -->|"UDP 4211 telemetry"| PERIPH
+
+    subgraph CAMESP["ESP32 CAMERA BOARD"]
+        CAMMCU["ESP32-S3"]
+        CAMERA["Camera"]
+        MIC["Microphone"]
+        LEDS["LED strip"]
+
+        CAMERA --> CAMMCU
+        MIC --> CAMMCU
+        CAMMCU --> LEDS
+    end
+
+    CAMBR -->|"UDP 4214 commands"| CAMMCU
+    CAMMCU -->|"HTTP 81 video, UDP 4213 status, UDP 4215 audio"| CAMBR
 ```
 
 This diagram represents the **current implementation**, not the future autonomous architecture.
@@ -119,6 +147,8 @@ This is the current rover's primary teleoperation/control node.
 * Implement deadman behavior
 * Implement turbo mode
 * Toggle tank mode
+* Implement proportional trigger drive (gas, brake, then reverse on the triggers), without a deadman
+* Publish the active drive mode
 * Generate head commands
 * Generate buzzer commands
 
@@ -132,6 +162,7 @@ Publish:
     /cmd_vel
     /head/angle
     /buzzer/beep
+    /drive_mode
 ```
 
 The current implementation is intentionally tied to the reference rover's controller layout and available control modes.
@@ -199,6 +230,7 @@ The peripheral bridge handles non-drive hardware for the reference rover.
 * Receive telemetry
 * Publish ultrasonic range data
 * Publish raw telemetry
+* Publish line sensor topics (`/line_sensor/raw`, `/line_sensor/detected`, `/line_sensor/position`)
 
 ### Current hardware protocol
 
@@ -221,6 +253,59 @@ The implementation is still rover-specific because it knows about this rover's:
 * Telemetry format
 
 A future robot can implement a different peripheral bridge without changing the overall architecture.
+
+---
+
+# `rover_camera_bridge`
+
+The camera bridge talks to the camera board, the rover's second ESP32.
+
+### Responsibilities
+
+* Read the camera board's video stream and publish it as `/camera/image/compressed`
+* Switch the camera on and off
+* Publish microphone level and audio, and switch the microphone mode
+* Control the LED strip (colour, mode, brightness, single pixels)
+* Publish the camera board's status line
+* Toggle the camera, lights and microphone from the gamepad D-pad
+
+### ROS 2 interfaces
+
+```text
+Publish:
+    /camera/image/compressed
+    /camera/enabled
+    /microphone/level
+    /microphone/audio
+    /leds/state
+
+Services:
+    /camera/enable
+    /microphone/enable
+```
+
+### Current hardware protocol
+
+```text
+HTTP 81   video stream
+UDP 4213  status from the camera board
+UDP 4214  commands: CAM, MIC, LED
+UDP 4215  microphone audio
+```
+
+The platform repository has a generic [camera template](https://github.com/SolarSpore/Distributed-Robotics-Platform-2026/tree/main/Node-templates/ros2/camera_template) derived from this node.
+
+---
+
+# `rover_odometry` (experimental)
+
+### Responsibilities
+
+* Read wheel counts from `rover/telemetry_raw`
+* Use `/cmd_vel` to resolve direction and strafing
+* Publish `/odom`, `/odometry/rear_wheel_speeds` and the `odom` to `base_link` transform
+
+It is written and tested against simulated counts only. It is not installed on the Deck and the rear wheel encoders are not fitted, so it does nothing until the wheel size, counts per turn and wheelbase are set. See "Encoders and Odometry" below.
 
 ---
 
@@ -266,8 +351,62 @@ The following network protocol belongs specifically to the current ESP32 rover.
       HEAD,<angle>
       BUZZ,<hz>,<ms>
       RELEASE
+
+4213  Camera board → Network
+      Status line
+
+4214  Deck → Camera board
+      CAM,... | MIC,... | LED,...
+
+4215  Camera board → Deck
+      Microphone audio (only while the microphone streams)
+
+HTTP 81  Camera board → Deck
+      Video stream
+
+(With the rear wheel encoders fitted, the 4211 telemetry also carries wheel counts.)
 ```
 
 These ports and packet formats are **implementation details**, not platform-wide requirements.
 
 A future robot can use a different microcontroller, transport, protocol, or hardware architecture while exposing the appropriate ROS 2 interfaces.
+
+---
+
+# Camera Board
+
+The second ESP32 is a Seeed XIAO ESP32-S3 Sense. It carries the camera, a PDM microphone and a strip of seven addressable LEDs, and two IR sensors are planned for it. Its firmware is in `firmware-cam/` and builds as its own PlatformIO project; its Wi-Fi and OTA settings live in a `config.h` that is never committed (copy `config.example.h` and fill it in).
+
+The board serves a web page with the video and the light controls on port 80, and the video stream on port 81. The microphone is off until it is switched on. Give the board a fixed address with a reservation in your router.
+
+Still to be checked: the board runs hot, the 5 V rail has not been measured against its peak current, and the video smoothness while driving is untested.
+
+---
+
+# Controls
+
+| Control | Action |
+|---|---|
+| L1 | Deadman in arcade, tank and strafe modes (not needed in trigger drive) |
+| R1 | Boost |
+| Left stick | Arcade forward, back and steering (in trigger drive, only the steering) |
+| A, held 3 s | Tank mode on or off |
+| X + D-pad left/right | Strafe |
+| L1 + both triggers, held 3 s | Proportional trigger drive on or off: right trigger gas, left trigger brake then reverse |
+| B | Beep |
+| Right stick X | Head swivel |
+| D-pad up, held 1 to 3 s | Lights on or off |
+| D-pad up, held 3 s | Camera on or off |
+| D-pad down, held 3 s | Microphone off or level |
+
+The D-pad toggles and trigger drive have not yet been confirmed on the real gamepad.
+
+---
+
+# Encoders and Odometry
+
+**Status: In progress**
+
+The main firmware can count two rear wheel encoders (one channel each, on GPIO 17 and 4). This is off by default (`ENCODERS_FITTED`) because the encoders are not fitted. When they are, the telemetry line carries the counts and `rover_odometry` turns them into `/odom`.
+
+Two rear wheels give forward speed but cannot tell turning from strafing, so the node uses the drive command to decide. Slip is not seen and the heading will drift. Front encoders or an IMU would remove that limit.

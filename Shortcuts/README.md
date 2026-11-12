@@ -24,10 +24,12 @@ The test tools in `../tools/` are installed separately: see `../tools/README.md`
 ## What is here
 
 - `start_rover_controls.sh`: stops any leftover rover processes, then starts `foxglove_bridge`,
-  teleop (`rover_control`, with `joy_node`), `rover_motor_bridge` and `rover_peripherals_bridge`,
-  all detached. Logs go to `~/Robotics/logs`. A lock stops a double-click from starting a second
+  teleop (`rover_control`, with `joy_node`), `rover_motor_bridge`, `rover_peripherals_bridge` and
+  `rover_camera_bridge` (the camera board's bridge: video, microphone, LEDs, IR sensors), all
+  detached. Logs go to `~/Robotics/logs`. A lock stops a double-click from starting a second
   copy on top of a running one.
-- `stop_rover_controls.sh`: stops all of the above.
+- `stop_rover_controls.sh`: stops all of the above. The camera bridge switches the camera board's
+  microphone off as it stops.
 - `desktop/RoverControls.desktop`: the "Rover Controls" icon. It runs the start script and has a
   right-click action, "Stop Rover Controls".
 - `desktop/StopRoverControls.desktop`: a separate "Stop Rover Controls" icon.
@@ -35,11 +37,13 @@ The test tools in `../tools/` are installed separately: see `../tools/README.md`
 ## Using them
 
 1. Click "Rover Controls" and wait for the notification.
-2. Hold L1 (the deadman) and drive.
+2. Hold L1 (the deadman) and drive. The other controls, including the camera, microphone and light
+   toggles on the D-pad, are in section 7 of `../Setup-Guide.md`.
 3. Right-click the icon and choose "Stop Rover Controls" when done.
 
-Each part writes its own log in `~/Robotics/logs`: `foxglove.log`, `teleop.log`, `bridge.log` and
-`peripherals.log`. Check them first if something does not start.
+Each part writes its own log in `~/Robotics/logs`: `foxglove.log`, `teleop.log`, `bridge.log`,
+`peripherals.log` and `camera.log` (and `odometry.log` once the odometry node is added, see below).
+Check them first if something does not start.
 
 ## How the icons work
 
@@ -66,8 +70,25 @@ them to change the top speed or the minimum motor power. The rover's IP address 
 script: both bridges default to `192.168.1.26`, and you can change it by adding `-p robot_ip:=YOUR_IP`
 to the `start bridge` and `start peripherals` lines.
 
+The camera bridge expects the camera board at `192.168.1.27`. To use another address, add
+`--ros-args -p camera_host:=YOUR_IP` to the `start camera` line. Without a camera board you can leave
+the line in: the bridge just keeps retrying quietly.
+
+## Adding the odometry node (optional, Part 4 of the setup guide)
+
+The odometry package is not started by default. Once `rover_odometry` is linked and built, add these
+lines to the scripts. In `start_rover_controls.sh`, after the `start peripherals` line:
+
+    start odometry "ros2 run rover_odometry rover_odometry --ros-args --params-file /home/deck/Robotics/Rover/rover_odometry/config/odometry.yaml"
+
+Also add `pkill -INT -f rover_odometry` next to the other `pkill -INT` lines, and `rover_odometry` to the
+`for pattern in ...` list. In `stop_rover_controls.sh`, add `pkill -INT -f rover_odometry`. The node does
+nothing until its settings are filled in (see `../rover_odometry/config/odometry.yaml`).
+
 ## Troubleshooting
 
 - An icon does nothing: check the `Exec=` path, make sure the script is executable, and read the logs.
 - Controls behave strangely: two `joy_node`s may be running. Run `pkill -f joy_node`, then click
   Rover Controls again.
+- `camera.log` says `Package 'rover_camera_bridge' not found`: link and build the package (step 4 of
+  `../Setup-Guide.md`) and check that its `package.xml` is not empty.

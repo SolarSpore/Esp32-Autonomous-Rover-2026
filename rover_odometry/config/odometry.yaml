@@ -1,0 +1,12 @@
+# Wheel odometry settings. The node does nothing until the first three
+# numbers are filled in (see rover_odometry.py for how to measure them).
+rover_odometry:
+  ros__parameters:
+    wheel_radius_m: 0.0        # wheel radius in metres: half the wheel diameter
+    ticks_per_wheel_rev: 0.0   # encoder counts for one full turn of a wheel
+    wheelbase_m: 0.0           # distance between the front and rear axles
+    track_width_m: 0.30        # distance between the left and right wheels
+    rear_left_sign: 1.0        # set -1.0 if driving forward counts down
+    rear_right_sign: 1.0
+    yaw_sign: 1.0              # set -1.0 if turning left reports a negative angle
+    strafe_sign: 1.0           # set -1.0 if strafing left reports a negative y

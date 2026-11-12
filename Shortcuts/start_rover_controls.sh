@@ -1,6 +1,7 @@
 #!/bin/bash
 # Rover Controls: teleop + /cmd_vel UDP bridge + peripherals bridge
-# (head, buzzer, sensors) + foxglove_bridge, all detached.
+# (head, buzzer, sensors) + camera bridge (video, IR) + foxglove_bridge,
+# all detached.
 PIXI=/home/deck/.pixi/bin/pixi
 WS=/home/deck/Robotics/ros2_ws
 LOGDIR=/home/deck/Robotics/logs
@@ -33,13 +34,16 @@ wait_gone() {  # $1 = pkill pattern, $2 = seconds to wait
 # Ask nicely first, then wait, then force.
 pkill -INT -f rover_motor_bridge
 pkill -INT -f rover_peripherals_bridge
+pkill -INT -f rover_odometry
+pkill -INT -f rover_camera_bridge
+pkill -f camera_stream.py
 pkill -f rover_wheel_test
 pkill -f rover_control.launch
 pkill -f "joy_node|teleop_node|rover_control_node"
 pkill -f foxglove_bridge_launch
 pkill -f "foxglove_bridge"
 
-for pattern in rover_motor_bridge rover_peripherals_bridge rover_wheel_test rover_control.launch "joy_node|teleop_node|rover_control_node" foxglove_bridge_launch foxglove_bridge; do
+for pattern in rover_motor_bridge rover_peripherals_bridge rover_odometry rover_camera_bridge camera_stream.py rover_wheel_test rover_control.launch "joy_node|teleop_node|rover_control_node" foxglove_bridge_launch foxglove_bridge; do
   wait_gone "$pattern" 6
 done
 
@@ -54,5 +58,7 @@ start teleop "ros2 launch rover_control rover_control.launch.py"
 sleep 3
 start bridge "ros2 run rover_motor_bridge rover_motor_bridge --ros-args -p max_linear_speed:=1.5 -p min_pwm:=110"
 start peripherals "ros2 run rover_peripherals_bridge rover_peripherals_bridge"
+start odometry "ros2 run rover_odometry rover_odometry --ros-args --params-file /home/deck/Robotics/Rover/rover_odometry/config/odometry.yaml"
+start camera "ros2 run rover_camera_bridge rover_camera_bridge"
 
 command -v notify-send >/dev/null && notify-send "Rover Controls" "Started. Hold L1 to drive."

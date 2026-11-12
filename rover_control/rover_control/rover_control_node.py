@@ -22,6 +22,21 @@ Tank (toggled):
   Right stick -> right wheels
   L1 / R1     -> same as arcade
 
+Proportional trigger drive (toggled):
+  Hold L1 + LT + RT (both triggers pulled) for `trigger_mode_hold_seconds`
+  to turn it on. Do the same again to turn it back off. Arcade stays the
+  default and is unchanged.
+  Right trigger (RT) -> gas: forward, in proportion to the pull
+  Left trigger (LT)  -> brake, then reverse: speed = RT - LT, so pulling LT
+                        while rolling forward slows the rover to a stop and
+                        then backs it up
+  Left stick X       -> steering (the stick does not drive forward/back)
+  R1                 -> turbo, with the same speed scales as arcade
+  NO DEADMAN: L1 is not needed to drive in this mode. Letting go of the
+  triggers stops the rover. Set `trigger_mode_requires_enable: true` to
+  require L1 here too. The toggle itself still needs L1.
+  The mode name is published on drive_mode (std_msgs/String, latched).
+
 Strafe (mecanum, X-pattern rollers):
   Hold X, D-pad left/right drives the rover sideways via linear.y.
   Works from either arcade or tank mode -- whichever was active before X
@@ -41,7 +56,8 @@ Head swivel (SG90) -- does not touch driving:
 Buzzer:
   B plays one beep (requires L1). Publishes buzzer/beep (std_msgs/Empty).
 
-Releasing L1 always stops the rover, in every mode.
+Releasing L1 stops the rover in every mode except proportional trigger
+drive (see above).
 """
 
 import math
@@ -49,9 +65,10 @@ import time
 
 import rclpy
 from rclpy.node import Node
+from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy
 from sensor_msgs.msg import Joy
 from geometry_msgs.msg import Twist
-from std_msgs.msg import Empty, Float32
+from std_msgs.msg import Empty, Float32, String
 
 
 class RoverControlNode(Node):
@@ -71,6 +88,14 @@ class RoverControlNode(Node):
         self.declare_parameter('axis_left_wheel', 1)
         self.declare_parameter('axis_right_wheel', 3)
         self.declare_parameter('axis_dpad_x', 6)
+        self.declare_parameter('axis_throttle', 5)    # RT: gas
+        self.declare_parameter('axis_reverse', 4)     # LT: brake, then reverse
+        self.declare_parameter('trigger_rest_value', 1.0)
+        self.declare_parameter('trigger_pressed_value', -1.0)
+        self.declare_parameter('trigger_deadzone', 0.05)
+        self.declare_parameter('trigger_mode_hold_seconds', 3.0)
+        self.declare_parameter('trigger_toggle_threshold', 0.8)
+        self.declare_parameter('trigger_mode_requires_enable', False)
 
         self.declare_parameter('scale_linear', 0.7)
         self.declare_parameter('scale_linear_turbo', 1.5)
@@ -107,6 +132,14 @@ class RoverControlNode(Node):
         self.axis_left_wheel = int(g('axis_left_wheel'))
         self.axis_right_wheel = int(g('axis_right_wheel'))
         self.axis_dpad_x = int(g('axis_dpad_x'))
+        self.axis_throttle = int(g('axis_throttle'))
+        self.axis_reverse = int(g('axis_reverse'))
+        self.trigger_rest_value = float(g('trigger_rest_value'))
+        self.trigger_pressed_value = float(g('trigger_pressed_value'))
+        self.trigger_deadzone = float(g('trigger_deadzone'))
+        self.trigger_mode_hold_seconds = float(g('trigger_mode_hold_seconds'))
+        self.trigger_toggle_threshold = float(g('trigger_toggle_threshold'))
+        self.trigger_mode_requires_enable = bool(g('trigger_mode_requires_enable'))
 
         self.scale_linear = float(g('scale_linear'))
         self.scale_linear_turbo = float(g('scale_linear_turbo'))
@@ -144,6 +177,14 @@ class RoverControlNode(Node):
         self.strafe_active = False
         self.last_enabled = False             # for the "release L1 -> stop" edge
 
+        # Proportional trigger drive: gas and brake as 0..1 pulls.
+        self.gas = 0.0
+        self.brake = 0.0
+        self.trigger_armed = {'gas': False, 'brake': False}
+        self.trigger_mode = False
+        self.trigger_hold_since = None
+        self.trigger_hold_fired = False
+
         # Head
         self.head_angle = self.head_center_deg
         self.head_rate = 0.0                  # degrees/second, signed
@@ -159,6 +200,13 @@ class RoverControlNode(Node):
         self.pub = self.create_publisher(Twist, 'cmd_vel', 10)
         self.head_pub = self.create_publisher(Float32, 'head/angle', 10)
         self.buzzer_pub = self.create_publisher(Empty, 'buzzer/beep', 10)
+        # Latched, so a dashboard that starts later still sees the mode.
+        self.mode_pub = self.create_publisher(
+            String, 'drive_mode',
+            QoSProfile(depth=1,
+                       reliability=ReliabilityPolicy.RELIABLE,
+                       durability=DurabilityPolicy.TRANSIENT_LOCAL))
+        self.publish_mode()
         self.create_subscription(Joy, 'joy', self.joy_callback, 10)
         if self.head_update_hz > 0.0:
             self.create_timer(1.0 / self.head_update_hz,
@@ -188,18 +236,31 @@ class RoverControlNode(Node):
         enabled = msg.buttons[self.enable_button] == 1
         turbo = msg.buttons[self.turbo_button] == 1
 
+        # Read the triggers on every message, even with L1 released, so a
+        # trigger is armed before it is first used.
+        self.gas = self.trigger_pull(msg, self.axis_throttle, 'gas')
+        self.brake = self.trigger_pull(msg, self.axis_reverse, 'brake')
+        self.update_trigger_mode_toggle(enabled)
+
         self.update_tank_toggle(msg)
-        self.update_strafe(msg, enabled)
+
+        # L1 is the deadman in every mode except proportional trigger drive,
+        # where letting go of the triggers is the stop. Worked out after the
+        # toggles above, so a mode change never leaves a stale answer.
+        drive_enabled = enabled or (
+            self.trigger_mode and not self.trigger_mode_requires_enable)
+
+        self.update_strafe(msg, drive_enabled)
 
         try:
-            self.update_aux(msg, enabled)
+            self.update_aux(msg, drive_enabled)
         except Exception as exc:  # head/buzzer must never block driving
             self.get_logger().error(
                 f'head/buzzer input error: {exc}',
                 throttle_duration_sec=5.0,
             )
 
-        if not enabled:
+        if not drive_enabled:
             if self.last_enabled:
                 self.stop()
             self.last_enabled = False
@@ -214,6 +275,8 @@ class RoverControlNode(Node):
 
         if self.tank_mode:
             self.pub.publish(self.tank_twist(msg, turbo))
+        elif self.trigger_mode:
+            self.pub.publish(self.trigger_twist(msg, turbo))
         else:
             self.pub.publish(self.arcade_twist(msg, turbo))
 
@@ -238,6 +301,9 @@ class RoverControlNode(Node):
                 held_for = now - self.tank_button_down_since
                 if held_for >= self.tank_hold_seconds:
                     self.tank_mode = not self.tank_mode
+                    if self.tank_mode:
+                        self.trigger_mode = False   # one drive mode at a time
+                    self.publish_mode()
                     self.get_logger().info(
                         f'Tank mode {"ON" if self.tank_mode else "OFF"} '
                         f'(held {held_for:.1f}s)'
@@ -326,6 +392,81 @@ class RoverControlNode(Node):
         self.head_pub.publish(out)
 
     # ------------------------------------------------------------------
+    def publish_mode(self):
+        """Publishes the drive mode (arcade, tank or trigger) for dashboards."""
+        if self.tank_mode:
+            name = 'tank'
+        elif self.trigger_mode:
+            name = 'trigger'
+        else:
+            name = 'arcade'
+        self.mode_pub.publish(String(data=name))
+
+    def update_trigger_mode_toggle(self, enabled: bool):
+        """Hold L1 + LT + RT (both triggers pulled) for trigger_mode_hold_seconds
+        to switch proportional trigger drive on or off. It fires once while
+        the three are still held, so release them before toggling again."""
+        held = (enabled
+                and self.gas >= self.trigger_toggle_threshold
+                and self.brake >= self.trigger_toggle_threshold)
+        now = time.monotonic()
+
+        if not held:
+            self.trigger_hold_since = None
+            self.trigger_hold_fired = False
+            return
+
+        if self.trigger_hold_since is None:
+            self.trigger_hold_since = now
+        if (not self.trigger_hold_fired
+                and now - self.trigger_hold_since >= self.trigger_mode_hold_seconds):
+            self.trigger_hold_fired = True
+            self.trigger_mode = not self.trigger_mode
+            if self.trigger_mode:
+                self.tank_mode = False   # one drive mode at a time
+            self.get_logger().info(
+                f'Proportional trigger drive {"ON" if self.trigger_mode else "OFF"}'
+            )
+            self.pub.publish(Twist())  # stop on mode change
+            self.publish_mode()
+
+    def trigger_pull(self, msg: Joy, axis: int, name: str) -> float:
+        """Trigger pull as 0.0 (rest) to 1.0 (fully pulled), with a deadzone.
+        A pad that reports 0.0 until a trigger is first touched must not
+        look like a half pull, so a trigger counts only after it has been
+        seen at rest once."""
+        if not (0 <= axis < len(msg.axes)):
+            self.get_logger().warn(
+                f'Trigger axis {axis} is not in /joy: {name} disabled',
+                throttle_duration_sec=10.0,
+            )
+            return 0.0
+
+        span = self.trigger_rest_value - self.trigger_pressed_value
+        if span == 0.0:
+            return 0.0
+        pull = (self.trigger_rest_value - msg.axes[axis]) / span
+        deadzone = max(0.0, min(0.9, self.trigger_deadzone))
+
+        if not self.trigger_armed[name]:
+            if pull <= deadzone:
+                self.trigger_armed[name] = True
+            return 0.0
+
+        pull = max(0.0, min(1.0, pull))
+        if pull <= deadzone:
+            return 0.0
+        return (pull - deadzone) / (1.0 - deadzone)
+
+    def trigger_twist(self, msg: Joy, turbo: bool) -> Twist:
+        lin_scale = self.scale_linear_turbo if turbo else self.scale_linear
+        ang_scale = self.scale_angular_turbo if turbo else self.scale_angular
+
+        t = Twist()
+        t.linear.x = (self.gas - self.brake) * lin_scale
+        t.angular.z = msg.axes[self.axis_steer] * ang_scale
+        return t
+
     def arcade_twist(self, msg: Joy, turbo: bool) -> Twist:
         lin_scale = self.scale_linear_turbo if turbo else self.scale_linear
         ang_scale = self.scale_angular_turbo if turbo else self.scale_angular

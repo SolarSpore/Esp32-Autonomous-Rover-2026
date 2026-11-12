@@ -16,6 +16,14 @@ rover_control_node:
     axis_left_wheel: 1      # left stick Y (tank mode, left wheels)
     axis_right_wheel: 3     # right stick Y (tank mode, right wheels)
     axis_dpad_x: 6          # D-pad X (strafe left/right)
+    axis_throttle: 5        # RT: gas in trigger drive (rests at 1.0, fully pulled = -1.0)
+    axis_reverse: 4         # LT: brake, then reverse in trigger drive (same range as RT)
+    trigger_rest_value: 1.0
+    trigger_pressed_value: -1.0
+    trigger_deadzone: 0.05  # fraction of a full pull ignored at the start
+    trigger_mode_hold_seconds: 3.0   # hold L1 + LT + RT this long to toggle trigger drive
+    trigger_toggle_threshold: 0.8    # how far LT and RT must be pulled (0..1) for the toggle
+    trigger_mode_requires_enable: false   # true = the L1 deadman is also needed in trigger drive
 
     scale_linear: 0.7
     scale_linear_turbo: 1.5

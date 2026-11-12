@@ -11,7 +11,10 @@
     - Buzzer module on GPIO 32 (idles HIGH, sounds when driven LOW;
       behaves as a passive buzzer, so it needs a tone to be audible)
     - 5-way TCRT5000L digital line module (33, 35, 36, 39, 16)
-    - 2x IR digital sensors (17, 4)
+    - Wheel encoders on the two rear wheels (GPIO 17 = rear left,
+      GPIO 4 = rear right), one output channel each. NOT FITTED YET:
+      ENCODERS_FITTED is false until they are wired. (The two IR
+      sensors that used these pins moved to the camera board.)
 
   UDP drive commands (port 4210, Deck -> rover):
     "FL,FR,RL,RR"    each value -255 .. 255
@@ -46,6 +49,14 @@
     Sensor readings are printed to Serial and also broadcast as a
     text line over UDP every SENSOR_REPORT_INTERVAL_MS. One-way and
     separate from the command ports. rover_sensor_bridge consumes it.
+    The wheel encoder data goes out as its own short line, much more
+    often (only once ENCODERS_FITTED is true):
+      "Enc: <rear left>,<rear right>,<millis> | Spd: <left>,<right>"
+    The counts are signed and cumulative since boot, and the time is
+    the rover's own clock, so the Deck can work out wheel speeds
+    without being thrown off by Wi-Fi delays. Spd is each rear wheel's
+    speed in mm/s, worked out on the rover from the stand-in wheel
+    size below (a quick check; the Deck's odometry uses the counts).
 
   Buzzer note:
     The idle (silent) level is HIGH. Use the tone functions for
@@ -156,6 +167,87 @@ const MotorPins MOTOR_PINS[MOTOR_COUNT] = {
 // LEDC channels share timers in pairs, so the servo (8) and buzzer
 // (10) must not sit in the same pair or changing the buzzer tone
 // would change the servo frequency.
+
+// ============================================================
+// Wheel encoder constants (rear wheels)
+// ============================================================
+
+// STAND-IN VALUES: the encoders are not fitted yet. Nothing below touches
+// the encoder pins until ENCODERS_FITTED is true. Edit these once they are
+// wired and measured.
+const bool ENCODERS_FITTED = false;
+
+// Wheel size and encoder resolution. Used only for the Spd (mm/s) field.
+// The Deck's odometry has its own copies in rover_odometry/config/odometry.yaml;
+// keep the two the same.
+const float WHEEL_DIAMETER_MM            = 65.0f;     // STAND-IN: measure the wheels
+const float ENCODER_COUNTS_PER_WHEEL_REV = 1000.0f;   // STAND-IN: counts for one full wheel turn
+
+const float ENCODER_MM_PER_COUNT =
+  3.14159265f * WHEEL_DIAMETER_MM / ENCODER_COUNTS_PER_WHEEL_REV;
+
+// The encoders have one output channel each, so the direction of a count
+// cannot come from the encoder. It comes from the direction the wheel was
+// last driven (see setMotor). Counts are signed and cumulative since boot.
+const int ENCODER_COUNT = 2;
+
+// Encoder pins, and the drive motor each one sits on (the motors are FL,
+// FR, RL, RR, so 2 = rear left and 3 = rear right). Swap the two pins if
+// the counts turn up on the wrong wheel.
+const int ENCODER_PINS[ENCODER_COUNT] = {17, 4};
+DRAM_ATTR const int ENCODER_MOTOR_INDEX[ENCODER_COUNT] = {2, 3};   // read in the interrupt
+
+// Internal pull-up, for open-collector encoder modules. It does no harm
+// with push-pull ones. RISING counts one edge per pulse, CHANGE counts two
+// (then double the counts per wheel turn above).
+const int ENCODER_PIN_MODE  = INPUT_PULLUP;
+const int ENCODER_EDGE_MODE = RISING;
+
+// Edges closer together than this are ignored (contact bounce, noise).
+const unsigned long ENCODER_MIN_EDGE_US = 100;
+
+const unsigned long ENCODER_REPORT_INTERVAL_MS = 50;   // 20 times a second
+
+volatile int32_t       encoderCounts[ENCODER_COUNT]     = {0, 0};
+volatile unsigned long encoderLastEdgeUs[ENCODER_COUNT] = {0, 0};
+
+// The direction each wheel was last driven: +1 or -1. A wheel that has
+// been stopped keeps its last direction while it coasts to a halt.
+volatile int8_t wheelDirection[MOTOR_COUNT] = {1, 1, 1, 1};
+
+unsigned long lastEncoderReportMs = 0;
+int32_t       lastEncoderReportCounts[ENCODER_COUNT] = {0, 0};
+
+void IRAM_ATTR encoderEdge(int index) {
+  unsigned long now = micros();
+
+  if (now - encoderLastEdgeUs[index] < ENCODER_MIN_EDGE_US) {
+    return;
+  }
+
+  encoderLastEdgeUs[index] = now;
+  encoderCounts[index] =
+    encoderCounts[index] + wheelDirection[ENCODER_MOTOR_INDEX[index]];
+}
+
+void IRAM_ATTR onEncoder0() { encoderEdge(0); }
+void IRAM_ATTR onEncoder1() { encoderEdge(1); }
+
+void setupEncoders() {
+  if (!ENCODERS_FITTED) {
+    Serial.println("Wheel encoders: not fitted (ENCODERS_FITTED is false).");
+    return;
+  }
+
+  for (int i = 0; i < ENCODER_COUNT; i++) {
+    pinMode(ENCODER_PINS[i], ENCODER_PIN_MODE);
+  }
+
+  attachInterrupt(digitalPinToInterrupt(ENCODER_PINS[0]), onEncoder0, ENCODER_EDGE_MODE);
+  attachInterrupt(digitalPinToInterrupt(ENCODER_PINS[1]), onEncoder1, ENCODER_EDGE_MODE);
+
+  Serial.println("Wheel encoders: on.");
+}
 
 // ============================================================
 // Drive failsafe constants
@@ -282,21 +374,18 @@ const unsigned int ULTRASONIC_TRIG_SETTLE_US = 2;
 const unsigned int ULTRASONIC_TRIG_PULSE_US  = 10;
 
 // ============================================================
-// Line sensor and IR sensor constants
+// Line sensor constants
 // ============================================================
 
 const int LINE_SENSOR_COUNT = 5;
-const int IR_SENSOR_COUNT   = 2;
 
 // Pins, left to right as wired.
 const int LINE_PINS[LINE_SENSOR_COUNT] = {33, 35, 36, 39, 16};
-const int IR_PINS[IR_SENSOR_COUNT]     = {17, 4};
 
 // Most of these modules output LOW when they see a reflective
 // surface (LED lit). Verify with a white and a dark surface, and
-// flip these if the readings are inverted.
+// flip this if the readings are inverted.
 const int LINE_ACTIVE_LEVEL = LOW;
-const int IR_ACTIVE_LEVEL   = LOW;
 
 // ============================================================
 // Sensor report constants
@@ -461,6 +550,14 @@ void setMotor(int index, int speed) {
 
   speed = constrain(speed, MOTOR_SPEED_MIN, MOTOR_SPEED_MAX);
 
+  // Remember which way this wheel is being driven, for the encoder counts.
+  if (speed > MOTOR_SPEED_STOP) {
+    wheelDirection[index] = 1;
+  }
+  else if (speed < MOTOR_SPEED_STOP) {
+    wheelDirection[index] = -1;
+  }
+
   int channelA = index * PWM_CHANNELS_PER_MOTOR;
   int channelB = channelA + 1;
 
@@ -549,28 +646,20 @@ float readUltrasonicCm() {
 }
 
 // ============================================================
-// Line sensor (5-way TCRT5000L digital module) and IR sensors
+// Line sensor (5-way TCRT5000L digital module)
 // ============================================================
 
-void setupLineAndIrSensors() {
-  // The modules have their own pull-ups. GPIO 35/36/39 have no
-  // internal pull-ups, so plain INPUT is used everywhere.
+void setupLineSensors() {
+  // The module has its own pull-ups. GPIO 35/36/39 have no internal
+  // pull-ups, so plain INPUT is used everywhere.
   for (int i = 0; i < LINE_SENSOR_COUNT; i++) {
     pinMode(LINE_PINS[i], INPUT);
-  }
-  for (int i = 0; i < IR_SENSOR_COUNT; i++) {
-    pinMode(IR_PINS[i], INPUT);
   }
 }
 
 // Returns true if the line sensor at this index reads "active".
 bool lineActive(int index) {
   return digitalRead(LINE_PINS[index]) == LINE_ACTIVE_LEVEL;
-}
-
-// Returns true if the IR sensor at this index reads "active".
-bool irActive(int index) {
-  return digitalRead(IR_PINS[index]) == IR_ACTIVE_LEVEL;
 }
 
 // ============================================================
@@ -602,23 +691,65 @@ void reportSensors() {
   }
   lineBits[LINE_SENSOR_COUNT] = '\0';
 
-  char irBits[IR_SENSOR_COUNT + 1];
-  for (int i = 0; i < IR_SENSOR_COUNT; i++) {
-    irBits[i] = irActive(i) ? '1' : '0';
-  }
-  irBits[IR_SENSOR_COUNT] = '\0';
-
   char report[SENSOR_REPORT_BUFFER_SIZE];
   snprintf(
     report,
     sizeof(report),
-    "Dist: %6.1f cm | Line: %s | IR: %s",
+    "Dist: %6.1f cm | Line: %s",
     distanceCm,
-    lineBits,
-    irBits
+    lineBits
   );
 
   Serial.println(report);
+  sendTelemetry(report);
+}
+
+// Sends the wheel encoder data as its own short line, often enough for
+// smooth odometry:
+//   "Enc: <rear left>,<rear right>,<rover millis> | Spd: <left>,<right>"
+// The time is the rover's own clock, so the Deck can work out speeds without
+// being thrown off by Wi-Fi delays. Spd is each wheel's speed in mm/s over
+// the last interval. Nothing is sent until ENCODERS_FITTED is true, and the
+// line is not printed to Serial.
+void reportEncoders() {
+  if (!ENCODERS_FITTED) {
+    return;
+  }
+
+  unsigned long now       = millis();
+  unsigned long elapsedMs = now - lastEncoderReportMs;
+
+  if (elapsedMs < ENCODER_REPORT_INTERVAL_MS) {
+    return;
+  }
+
+  lastEncoderReportMs = now;
+
+  int32_t counts[ENCODER_COUNT];
+  long    speedMmPerS[ENCODER_COUNT];
+
+  for (int i = 0; i < ENCODER_COUNT; i++) {
+    counts[i] = encoderCounts[i];
+
+    float millimetres =
+      (float)(counts[i] - lastEncoderReportCounts[i]) * ENCODER_MM_PER_COUNT;
+    speedMmPerS[i] = lroundf(millimetres * 1000.0f / (float)elapsedMs);
+
+    lastEncoderReportCounts[i] = counts[i];
+  }
+
+  char report[80];
+  snprintf(
+    report,
+    sizeof(report),
+    "Enc: %ld,%ld,%lu | Spd: %ld,%ld",
+    (long)counts[0],
+    (long)counts[1],
+    now,
+    speedMmPerS[0],
+    speedMmPerS[1]
+  );
+
   sendTelemetry(report);
 }
 
@@ -1011,7 +1142,8 @@ void setup() {
   stopAll();
 
   setupUltrasonic();
-  setupLineAndIrSensors();
+  setupLineSensors();
+  setupEncoders();
 
   if (!setupNetwork()) {
 
@@ -1067,6 +1199,8 @@ void loop() {
   checkFailsafes();
 
   buzzerUpdate();
+
+  reportEncoders();
 
   if (millis() - lastSensorReportMs >= SENSOR_REPORT_INTERVAL_MS) {
     lastSensorReportMs = millis();

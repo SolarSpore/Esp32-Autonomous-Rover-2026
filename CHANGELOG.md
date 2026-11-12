@@ -3,6 +3,25 @@
 Changes to the ESP32 mecanum rover: firmware, ROS 2 packages, launch scripts and tools.
 Platform-level changes are recorded in the Distributed-Robotics-Platform-2026 repo.
 
+## 2026-11-11
+
+### Added
+
+- `rover_camera_bridge/`: the Deck-side bridge for the camera board. Video as `camera/image/compressed`, camera on/off, microphone level and audio, LED strip control, IR sensors, and gamepad toggles (D-pad up and down).
+- `rover_odometry/`: wheel odometry from encoders on the two rear wheels (`odom` and the odom to base_link transform). Experimental: no encoders are fitted yet.
+- `firmware-cam/`: PlatformIO project for the camera board (XIAO ESP32-S3 Sense): video and a web page, microphone, 7 addressable LEDs with a web control page, IR sensors, Wi-Fi with a fallback access point, and OTA updates.
+
+### Changed
+
+- `rover_control`: a third driving mode, proportional trigger drive (right trigger gas, left trigger brake and reverse, no deadman). Toggled by holding L1 and both triggers for 3 seconds. Arcade stays the default.
+- `firmware/src/main.cpp`: the two IR sensors moved to the camera board; stand-in support for wheel encoders on the rear wheels, off until `ENCODERS_FITTED` is true.
+- `Shortcuts/`: the start and stop scripts also start and stop the camera bridge.
+
+### Documentation
+
+- `Setup-Guide.md`: a new controls table, Part 3 (the camera board) and Part 4 (wheel odometry), updated ports and troubleshooting.
+- `Shortcuts/README.md` and `foxglove/README.md` updated. Added `firmware-cam/README.md`.
+
 ## 2026-10-19
 
 ### Documentation
