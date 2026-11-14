@@ -3,6 +3,15 @@
 Changes to the ESP32 mecanum rover: firmware, ROS 2 packages, launch scripts and tools.
 Platform-level changes are recorded in the Distributed-Robotics-Platform-2026 repo.
 
+## 2026-11-14
+
+### Documentation
+
+- Rewrote the README around the Steam Deck as the operator station: driving with its gamepad and watching the camera and sensors in Foxglove.
+- Added an overview diagram and a ROS 2 node diagram, both drawn top to bottom so they stay readable on GitHub.
+- Added the Driving with the Steam Deck controls table and the Seeing the Rover with Foxglove section.
+- Added sections for the camera board and wheel odometry, and updated the repository layout, components and UDP interface lists.
+
 ## 2026-11-11
 
 ### Added
