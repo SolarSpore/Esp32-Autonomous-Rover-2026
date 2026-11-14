@@ -1,8 +1,8 @@
 # Esp32-Autonomous-Rover-2026
 
-A four-wheel mecanum rover that you drive with a Steam Deck. The Deck is the whole operator station: its gamepad is the controller, its processor runs the ROS 2 software, and its screen runs Foxglove, so you can look through the rover's camera and watch its sensors while you drive.
+A four-wheel mecanum rover that you drive with a Steam Deck. The Deck is the whole operation interface: its gamepad is the controller, its processor runs the ROS 2 software, and its screen runs Foxglove, so you can look through the rover's camera and watch its sensors while you navigate.
 
-The rover itself carries only small ESP32 boards. One drives the motors, the head servo and the sensors. A second carries the camera, a microphone and an LED strip. Both talk to the Steam Deck over Wi-Fi, and everything else happens on the Deck.
+The rover itself is controlled by 2 small ESP32 boards. One drives the motors, the head servo and the sensors. The second provides the camera, a microphone and an LED strip. Both talk to the Steam Deck over Wi-Fi, and everything else happens on the Deck.
 
 This repository has everything specific to the rover: the firmware for both boards, the ROS 2 packages, the start and stop shortcuts, the test tools, the Foxglove layouts and the 3D-printable parts. The rover is the reference robot for the [Distributed ROS 2 Robotics Platform](https://github.com/SolarSpore/Distributed-Robotics-Platform-2026), which holds the general architecture, the node templates and a complete Steam Deck setup guide.
 
