@@ -70,28 +70,27 @@ The printable parts are in the `STL/` folder.
 The current reference robot is a four-wheel mecanum rover controlled by an ESP32.
 
 ```mermaid
-flowchart LR
+flowchart TB
     subgraph ROS["STEAM DECK / ROS 2"]
         JOY["joy_node"]
         CONTROL["rover_control_node"]
         MOTOR["rover_motor_bridge"]
         PERIPH["rover_peripherals_bridge"]
         CAMBR["rover_camera_bridge"]
-        ODOM["rover_odometry (not installed yet)"]
+        ODOM["rover_odometry<br/>(not installed yet)"]
 
         JOY -->|"/joy"| CONTROL
-        JOY -->|"/joy (camera, light and microphone toggles)"| CAMBR
+        JOY -->|"/joy toggles"| CAMBR
         CONTROL -->|"/cmd_vel"| MOTOR
-        CONTROL -->|"/head/angle"| PERIPH
-        CONTROL -->|"/buzzer/beep"| PERIPH
+        CONTROL -->|"/head/angle<br/>/buzzer/beep"| PERIPH
         CONTROL -->|"/cmd_vel"| ODOM
-        PERIPH -->|"rover/telemetry_raw"| ODOM
+        PERIPH -->|"telemetry_raw"| ODOM
     end
 
-    subgraph ESP["ESP32 ROVER"]
+    subgraph ESP["MAIN ESP32"]
         MCU["ESP32"]
-        MOTORS["L298N + Motors"]
-        HEAD["Head Servo"]
+        MOTORS["L298N + motors"]
+        HEAD["Head servo"]
         BUZZ["Buzzer"]
         SENSOR["Sensors"]
 
@@ -101,11 +100,7 @@ flowchart LR
         SENSOR --> MCU
     end
 
-    MOTOR -->|"UDP 4210"| MCU
-    PERIPH -->|"UDP 4212"| MCU
-    MCU -->|"UDP 4211 telemetry"| PERIPH
-
-    subgraph CAMESP["ESP32 CAMERA BOARD"]
+    subgraph CAMESP["CAMERA ESP32"]
         CAMMCU["ESP32-S3"]
         CAMERA["Camera"]
         MIC["Microphone"]
@@ -116,8 +111,11 @@ flowchart LR
         CAMMCU --> LEDS
     end
 
-    CAMBR -->|"UDP 4214 commands"| CAMMCU
-    CAMMCU -->|"HTTP 81 video, UDP 4213 status, UDP 4215 audio"| CAMBR
+    MOTOR -->|"UDP 4210"| MCU
+    PERIPH -->|"UDP 4212"| MCU
+    MCU -->|"UDP 4211<br/>telemetry"| PERIPH
+    CAMBR -->|"UDP 4214<br/>commands"| CAMMCU
+    CAMMCU -->|"HTTP 81 video<br/>UDP 4213, 4215"| CAMBR
 ```
 
 This diagram represents the **current implementation**, not the future autonomous architecture.
