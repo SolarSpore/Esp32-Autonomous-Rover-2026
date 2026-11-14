@@ -1,8 +1,20 @@
 # Esp32-Autonomous-Rover-2026
 
-A four-wheel mecanum rover with an ESP32 controller, driven from a Steam Deck over Wi-Fi with ROS 2. This repository has everything specific to the rover: the firmware, the ROS 2 packages, the start and stop shortcuts, the test tools, the Foxglove layouts and the 3D-printable parts.
+A four-wheel mecanum rover that you drive with a Steam Deck. The Deck is the whole operator station: its gamepad is the controller, its processor runs the ROS 2 software, and its screen runs Foxglove, so you can look through the rover's camera and watch its sensors while you drive.
 
-The rover is the reference robot for the [Distributed ROS 2 Robotics Platform](https://github.com/SolarSpore/Distributed-Robotics-Platform-2026), which holds the general architecture, the node templates and a complete Steam Deck setup guide.
+The rover itself carries only small ESP32 boards. One drives the motors, the head servo and the sensors. A second carries the camera, a microphone and an LED strip. Both talk to the Steam Deck over Wi-Fi, and everything else happens on the Deck.
+
+This repository has everything specific to the rover: the firmware for both boards, the ROS 2 packages, the start and stop shortcuts, the test tools, the Foxglove layouts and the 3D-printable parts. The rover is the reference robot for the [Distributed ROS 2 Robotics Platform](https://github.com/SolarSpore/Distributed-Robotics-Platform-2026), which holds the general architecture, the node templates and a complete Steam Deck setup guide.
+
+```mermaid
+flowchart TB
+    DECK["Steam Deck<br/>gamepad · ROS 2 · Foxglove"]
+    MAIN["Main ESP32<br/>motors · head · sensors"]
+    CAM["Camera ESP32<br/>camera · microphone · LEDs"]
+
+    DECK -->|"Wi-Fi"| MAIN
+    DECK -->|"Wi-Fi"| CAM
+```
 
 ---
 
@@ -13,9 +25,47 @@ The **[setup guide](Setup-Guide.md)** is a quick start. It walks you through:
 * Installing Pixi and a ROS 2 workspace on the Steam Deck
 * Linking and building the rover's ROS 2 packages
 * Installing the desktop shortcuts and Foxglove
-* Setting up the firmware project in PlatformIO with Visual Studio Code, and flashing the ESP32 over USB and over Wi-Fi
+* Setting up the firmware projects in PlatformIO with Visual Studio Code, and flashing the ESP32 boards over USB and over Wi-Fi
 
 For a fuller explanation of the Pixi, ROS 2 and Foxglove setup, see the platform's [setup guide](https://github.com/SolarSpore/Distributed-Robotics-Platform-2026/blob/main/docs/install_guide.md).
+
+---
+
+# Driving with the Steam Deck
+
+The Steam Deck's own controls drive the rover, so there is nothing else to carry or connect. The left stick drives and steers, the right stick swings the head, and a few buttons switch modes.
+
+| Control | Action |
+|---|---|
+| L1 | Deadman: hold it to drive in arcade, tank and strafe modes |
+| R1 | Boost |
+| Left stick | Forward, back and steering |
+| A, held 3 s | Switch tank mode on or off (the two sticks drive the two sides) |
+| X + D-pad left or right | Strafe |
+| L1 + both triggers, held 3 s | Switch proportional trigger drive on or off: right trigger for gas, left trigger for brake and then reverse |
+| B | Beep |
+| Right stick X | Swing the head |
+| D-pad up, held 1 to 3 s | Lights on or off |
+| D-pad up, held 3 s | Camera on or off |
+| D-pad down, held 3 s | Microphone off or level |
+
+Every button and axis number lives in `rover_control/config/steam_deck_controls.yaml`, together with the speed scales. The D-pad toggles assume the Steam Deck's virtual Xbox gamepad, so if your numbers differ, `tools/joy_mapper.py` shows which ones your pad uses.
+
+---
+
+# Seeing the Rover with Foxglove
+
+Foxglove Studio runs on the Steam Deck and connects to the ROS 2 graph, so the same screen that you drive from shows what the rover sees and measures.
+
+* **Camera.** An Image panel on `/camera/image/compressed` shows the live video from the camera board. The `/camera/enable` service and the D-pad switch the camera on and off.
+* **Distance.** A plot of `/ultrasonic/range` shows the ultrasonic distance as you approach an obstacle.
+* **Line sensor.** `/line_sensor/raw`, `/line_sensor/detected` and `/line_sensor/position` show what the five-way line module sees.
+* **Microphone.** `/microphone/level` shows how loud it is around the rover, and `/microphone/audio` carries the audio itself.
+* **Driving.** A plot of `/cmd_vel` shows exactly what the controller is asking for, and `/drive_mode` shows the active mode.
+* **Position.** `/odom` and the `odom` to `base_link` transform can be shown in the 3D panel.
+* **Raw telemetry.** `/rover/telemetry_raw` shows the text line the main board broadcasts.
+
+Dashboard layouts are kept in `foxglove/`, and its README explains how to import one.
 
 ---
 
@@ -24,16 +74,16 @@ For a fuller explanation of the Pixi, ROS 2 and Foxglove setup, see the platform
 ```text
 .
 ├── Setup-Guide.md               quick-start setup guide
-├── firmware/                    PlatformIO project for the ESP32 (src/main.cpp, platformio.ini,
-│                                include/config.example.h)
+├── firmware/                    PlatformIO project for the main ESP32 (src/main.cpp,
+│                                platformio.ini, include/config.example.h)
 ├── firmware-cam/                PlatformIO project for the camera board (src/main.cpp,
 │                                platformio.ini, include/config.example.h)
 ├── rover_control/               teleoperation node, controller configuration, launch file
 ├── rover_motor_bridge/          /cmd_vel to the rover's drive protocol
-├── rover_peripherals_bridge/    head, buzzer and telemetry
+├── rover_peripherals_bridge/    head, buzzer, ultrasonic range and line sensor
 ├── rover_camera_bridge/         camera board: video, microphone and LEDs
-├── rover_odometry/              wheel odometry from the rear encoders (experimental)
-├── rover_description/           robot description (placeholder, not built)
+├── rover_odometry/              wheel odometry from the rear encoders
+├── rover_description/           robot description files
 ├── ros2_ws/                     Pixi workspace files: pixi.toml and pixi.lock
 ├── Shortcuts/                   start and stop scripts and the desktop icons
 ├── tools/                       wheel test scripts and a controller calibration wizard
@@ -47,27 +97,23 @@ For a fuller explanation of the Pixi, ROS 2 and Foxglove setup, see the platform
 
 # Components
 
-* ESP32-WROOM-32 development board
+* ESP32-WROOM-32 development board (main controller)
 * Two L298N motor drivers and four DC gear motors with mecanum wheels (X-pattern rollers)
 * SG90 servo for the head
 * HC-SR04 ultrasonic distance sensor
 * Buzzer module
 * 5-way TCRT5000L line sensor module
-* Seeed XIAO ESP32-S3 Sense camera board (second ESP32) with a PDM microphone and a strip of seven addressable LEDs
-* Two IR sensors, being moved to the camera board
-* Two rear wheel encoders (planned, not fitted)
+* Seeed XIAO ESP32-S3 Sense camera board, with its camera, a PDM microphone and a strip of seven addressable LEDs
+* Two IR sensors, connected to the camera board
+* Two rear wheel encoders, one channel each, for odometry
 
-The pin assignments are constants at the top of `firmware/src/main.cpp`.
-
-The camera board's are at the top of `firmware-cam/src/main.cpp`.
-
-The printable parts are in the `STL/` folder.
+The pin assignments are constants at the top of `firmware/src/main.cpp` and `firmware-cam/src/main.cpp`. The printable parts are in the `STL/` folder.
 
 ---
 
-# Current Reference Rover
+# How It Fits Together
 
-The current reference robot is a four-wheel mecanum rover controlled by an ESP32.
+Each part of the rover has its own ROS 2 node on the Steam Deck. The control node turns the gamepad into velocity commands, and a bridge for each ESP32 turns those commands into the messages that board understands.
 
 ```mermaid
 flowchart TB
@@ -77,7 +123,7 @@ flowchart TB
         MOTOR["rover_motor_bridge"]
         PERIPH["rover_peripherals_bridge"]
         CAMBR["rover_camera_bridge"]
-        ODOM["rover_odometry<br/>(not installed yet)"]
+        ODOM["rover_odometry"]
 
         JOY -->|"/joy"| CONTROL
         JOY -->|"/joy toggles"| CAMBR
@@ -118,39 +164,21 @@ flowchart TB
     CAMMCU -->|"HTTP 81 video<br/>UDP 4213, 4215"| CAMBR
 ```
 
-This diagram represents the **current implementation**, not the future autonomous architecture.
-
-The rover is important because it provides a complete working example of the platform's intended separation between:
-
-1. ROS 2 control
-2. Hardware bridges
-3. Network communication
-4. Microcontroller firmware
-5. Physical hardware
+Foxglove reads all of these topics through `foxglove_bridge`, which is how the camera and sensor data reach the dashboard.
 
 ---
 
-# ROS 2 Control Nodes
+# ROS 2 Nodes
 
 ## `rover_control_node`
 
-This is the current rover's primary teleoperation/control node.
+The rover's teleoperation node. It reads the gamepad and decides what the rover should do.
 
-### Responsibilities
-
-* Read `sensor_msgs/Joy`
-* Implement arcade driving
-* Implement tank driving
-* Implement mecanum strafing
-* Implement deadman behavior
-* Implement turbo mode
-* Toggle tank mode
-* Implement proportional trigger drive (gas, brake, then reverse on the triggers), without a deadman
-* Publish the active drive mode
-* Generate head commands
-* Generate buzzer commands
-
-### ROS 2 interfaces
+* Reads `sensor_msgs/Joy`
+* Drives in arcade, tank, strafe and proportional trigger modes
+* Applies the deadman and boost
+* Generates head and buzzer commands
+* Publishes the active mode on `/drive_mode`
 
 ```text
 Subscribe:
@@ -163,29 +191,16 @@ Publish:
     /drive_mode
 ```
 
-The current implementation is intentionally tied to the reference rover's controller layout and available control modes.
+The node is written around the Steam Deck's controller layout. A robot with different controls can use a different control node that publishes the same ROS 2 commands.
 
-The **architecture is reusable**, but this particular node is not intended to be presented as a universal teleoperation package.
+## `rover_motor_bridge`
 
-If another robot requires different controls, a different control node can implement the same general ROS 2 command concepts.
+Translates `/cmd_vel` into drive commands for the main ESP32.
 
----
-
-# `rover_motor_bridge`
-
-The motor bridge is responsible for translating a ROS 2 velocity command into commands understood by the rover's motor hardware.
-
-### Responsibilities
-
-* Subscribe to `/cmd_vel`
-* Apply mecanum kinematics
-* Convert velocity to PWM values
-* Apply minimum-PWM compensation
-* Send drive packets to the ESP32
-* Enforce a command timeout
-* Send a stop packet during shutdown
-
-### Current hardware protocol
+* Applies mecanum kinematics
+* Converts velocity to PWM values, with a minimum-PWM compensation
+* Sends drive packets to the ESP32 and stops the rover if commands stop arriving
+* Sends a stop packet when it shuts down
 
 ```text
 UDP 4210
@@ -193,44 +208,15 @@ UDP 4210
 FL,FR,RL,RR
 ```
 
-The bridge is intentionally robot-specific.
+## `rover_peripherals_bridge`
 
-A different robot could use a different bridge:
+Handles the head, the buzzer and the main board's sensors.
 
-```text
-Mecanum robot
-    → mecanum motor bridge
-
-Differential robot
-    → differential motor bridge
-
-Tracked robot
-    → tracked motor bridge
-
-Servo robot
-    → servo actuator bridge
-```
-
-All of these can expose the appropriate ROS-facing interfaces while implementing completely different hardware underneath.
-
-This is one of the main architectural boundaries of the project.
-
----
-
-# `rover_peripherals_bridge`
-
-The peripheral bridge handles non-drive hardware for the reference rover.
-
-### Responsibilities
-
-* Send head commands
-* Send buzzer commands
-* Receive telemetry
-* Publish ultrasonic range data
-* Publish raw telemetry
-* Publish line sensor topics (`/line_sensor/raw`, `/line_sensor/detected`, `/line_sensor/position`)
-
-### Current hardware protocol
+* Sends head and buzzer commands
+* Receives telemetry from the main ESP32
+* Publishes ultrasonic range data on `/ultrasonic/range`
+* Publishes the line sensor on `/line_sensor/raw`, `/line_sensor/detected` and `/line_sensor/position`
+* Publishes the raw telemetry line on `/rover/telemetry_raw`
 
 ```text
 UDP 4212
@@ -241,33 +227,16 @@ UDP 4211
     telemetry
 ```
 
-This demonstrates the platform's general **peripheral bridge** pattern.
+## `rover_camera_bridge`
 
-The implementation is still rover-specific because it knows about this rover's:
+Talks to the camera board.
 
-* Head
-* Buzzer
-* Ultrasonic sensor
-* Telemetry format
-
-A future robot can implement a different peripheral bridge without changing the overall architecture.
-
----
-
-# `rover_camera_bridge`
-
-The camera bridge talks to the camera board, the rover's second ESP32.
-
-### Responsibilities
-
-* Read the camera board's video stream and publish it as `/camera/image/compressed`
-* Switch the camera on and off
-* Publish microphone level and audio, and switch the microphone mode
-* Control the LED strip (colour, mode, brightness, single pixels)
-* Publish the camera board's status line
-* Toggle the camera, lights and microphone from the gamepad D-pad
-
-### ROS 2 interfaces
+* Reads the video stream and publishes it as `/camera/image/compressed`
+* Switches the camera on and off
+* Publishes microphone level and audio, and switches the microphone mode
+* Controls the LED strip: colour, mode, brightness and single pixels
+* Publishes the camera board's status line
+* Toggles the camera, lights and microphone from the gamepad D-pad
 
 ```text
 Publish:
@@ -282,28 +251,38 @@ Services:
     /microphone/enable
 ```
 
-### Current hardware protocol
-
-```text
-HTTP 81   video stream
-UDP 4213  status from the camera board
-UDP 4214  commands: CAM, MIC, LED
-UDP 4215  microphone audio
-```
-
 The platform repository has a generic [camera template](https://github.com/SolarSpore/Distributed-Robotics-Platform-2026/tree/main/Node-templates/ros2/camera_template) derived from this node.
+
+## `rover_odometry`
+
+Turns the rear wheel encoder counts into an estimate of where the rover is.
+
+* Reads the wheel counts from `/rover/telemetry_raw`
+* Uses `/cmd_vel` to tell forward driving from turning and strafing
+* Publishes `/odom`, `/odometry/rear_wheel_speeds` and the `odom` to `base_link` transform
 
 ---
 
-# `rover_odometry` (experimental)
+# Camera Board
 
-### Responsibilities
+The camera board is a Seeed XIAO ESP32-S3 Sense. It carries the camera, a PDM microphone and a strip of seven addressable LEDs, and the two IR sensors connect to it as well. Its firmware is in `firmware-cam/` and builds as its own PlatformIO project. Its Wi-Fi and OTA settings live in a `config.h` that is never committed: copy `config.example.h` and fill it in.
 
-* Read wheel counts from `rover/telemetry_raw`
-* Use `/cmd_vel` to resolve direction and strafing
-* Publish `/odom`, `/odometry/rear_wheel_speeds` and the `odom` to `base_link` transform
+The board serves a web page with the video and the light controls on port 80, and the video stream on port 81, so you can check it from any browser before ROS is involved. The microphone is off until it is switched on. Give the board a fixed address with a reservation in your router. It runs warm in use, so leave it some airflow.
 
-It is written and tested against simulated counts only. It is not installed on the Deck and the rear wheel encoders are not fitted, so it does nothing until the wheel size, counts per turn and wheelbase are set. See "Encoders and Odometry" below.
+---
+
+# Wheel Odometry
+
+The rover tracks its own position from two rear wheel encoders, one channel each, on GPIO 17 (rear left) and GPIO 4 (rear right). The main board counts the pulses and adds the counts to its telemetry line, and `rover_odometry` turns them into `/odom` and the `odom` to `base_link` transform. Foxglove's 3D panel draws the result as the rover drives.
+
+Counting is controlled by `ENCODERS_FITTED` in `firmware/src/main.cpp`. To set it up on your own rover:
+
+1. Connect the encoders to GPIO 17 and 4 and power them from 3.3 V.
+2. Make sure `ENCODERS_FITTED` is `true`, and flash the main board.
+3. Set the wheel radius, the counts per wheel turn and the wheelbase in `rover_odometry/config/odometry.yaml`.
+4. Calibrate on the floor: drive one metre and scale the wheel radius by real distance over reported distance, then turn on the spot and adjust the wheelbase.
+
+Two rear wheels give an exact forward speed but cannot tell turning from strafing, so the node uses the drive command to decide. Wheel slip is not measured, so the heading drifts over distance.
 
 ---
 
@@ -311,7 +290,7 @@ It is written and tested against simulated counts only. It is not installed on t
 
 ## Drive
 
-The reference robot uses four-wheel mecanum drive with an X-pattern roller arrangement.
+The rover uses four-wheel mecanum drive with an X-pattern roller arrangement.
 
 ```text
 FL ───────── FR
@@ -330,22 +309,22 @@ rl = linear.x + linear.y - angular.z * wheel_separation / 2
 rr = linear.x - linear.y + angular.z * wheel_separation / 2
 ```
 
-These equations are part of the **reference rover's mecanum implementation**, not a requirement for every robot using the platform.
+These equations are part of the rover's mecanum implementation, not a requirement for every robot using the platform.
 
 ---
 
-# Reference UDP Interfaces
+# UDP Interfaces
 
-The following network protocol belongs specifically to the current ESP32 rover.
+The following network protocol belongs to the rover's two ESP32 boards.
 
 ```text
-4210  Deck → Rover
+4210  Deck → Main board
       FL,FR,RL,RR
 
-4211  Rover → Network
-      Telemetry
+4211  Main board → Network
+      Telemetry (with the wheel encoders connected, also the wheel counts)
 
-4212  Deck → Rover
+4212  Deck → Main board
       HEAD,<angle>
       BUZZ,<hz>,<ms>
       RELEASE
@@ -359,52 +338,11 @@ The following network protocol belongs specifically to the current ESP32 rover.
 4215  Camera board → Deck
       Microphone audio (only while the microphone streams)
 
+HTTP 80  Camera board → Browser
+      Page with the video and the light controls
+
 HTTP 81  Camera board → Deck
       Video stream
-
-(With the rear wheel encoders fitted, the 4211 telemetry also carries wheel counts.)
 ```
 
-These ports and packet formats are **implementation details**, not platform-wide requirements.
-
-A future robot can use a different microcontroller, transport, protocol, or hardware architecture while exposing the appropriate ROS 2 interfaces.
-
----
-
-# Camera Board
-
-The second ESP32 is a Seeed XIAO ESP32-S3 Sense. It carries the camera, a PDM microphone and a strip of seven addressable LEDs, and two IR sensors are planned for it. Its firmware is in `firmware-cam/` and builds as its own PlatformIO project; its Wi-Fi and OTA settings live in a `config.h` that is never committed (copy `config.example.h` and fill it in).
-
-The board serves a web page with the video and the light controls on port 80, and the video stream on port 81. The microphone is off until it is switched on. Give the board a fixed address with a reservation in your router.
-
-Still to be checked: the board runs hot, the 5 V rail has not been measured against its peak current, and the video smoothness while driving is untested.
-
----
-
-# Controls
-
-| Control | Action |
-|---|---|
-| L1 | Deadman in arcade, tank and strafe modes (not needed in trigger drive) |
-| R1 | Boost |
-| Left stick | Arcade forward, back and steering (in trigger drive, only the steering) |
-| A, held 3 s | Tank mode on or off |
-| X + D-pad left/right | Strafe |
-| L1 + both triggers, held 3 s | Proportional trigger drive on or off: right trigger gas, left trigger brake then reverse |
-| B | Beep |
-| Right stick X | Head swivel |
-| D-pad up, held 1 to 3 s | Lights on or off |
-| D-pad up, held 3 s | Camera on or off |
-| D-pad down, held 3 s | Microphone off or level |
-
-The D-pad toggles and trigger drive have not yet been confirmed on the real gamepad.
-
----
-
-# Encoders and Odometry
-
-**Status: In progress**
-
-The main firmware can count two rear wheel encoders (one channel each, on GPIO 17 and 4). This is off by default (`ENCODERS_FITTED`) because the encoders are not fitted. When they are, the telemetry line carries the counts and `rover_odometry` turns them into `/odom`.
-
-Two rear wheels give forward speed but cannot tell turning from strafing, so the node uses the drive command to decide. Slip is not seen and the heading will drift. Front encoders or an IMU would remove that limit.
+These ports and packet formats are implementation details of this rover. A different robot can use another microcontroller, transport or protocol while exposing the same ROS 2 interfaces.
